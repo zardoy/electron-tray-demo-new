@@ -34,13 +34,13 @@ const setupThumbnailButton = (window: BrowserWindow): void => {
     const icon = nativeImage.createFromPath(iconPath);
 
     // Resize to 44x44 for thumbnail button (Windows standard)
-    const thumbnailIcon = icon.resize({ width: 44, height: 44 });
+    const thumbnailIcon = icon.resize({ width: 16, height: 16 });
 
     // Set thumbnail clip area for custom thumbnail preview
-    window.setThumbnailClip({ x: 0, y: 0, width: 44, height: 44 });
+    // window.setThumbnailClip({ x: 0, y: 0, width: 44, height: 44 });
 
-    // Set the window icon (this affects the taskbar thumbnail)
-    window.setIcon(thumbnailIcon);
+    // // Set the window icon (this affects the taskbar thumbnail)
+    // window.setIcon(thumbnailIcon);
 
     // Set up thumbnail toolbar buttons (Windows 7+)
     window.setThumbarButtons([
