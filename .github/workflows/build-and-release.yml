@@ -1,0 +1,183 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Build Windows executable
+      run: pnpm run make
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        APP_VERSION: 0.0.0-alpha.${{ github.run_number }}
+
+    # list the files in the out directory recursively
+    - name: List files in out directory
+      shell: powershell
+      run: |
+        Get-ChildItem -Path "out\" -Recurse -Force
+
+    - name: Upload Windows artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: electron-tray-demo-windows
+        path: out/make/squirrel.windows/x64/*.exe
+        retention-days: 30
+
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Setup pnpm
+      uses: pnpm/action-setup@v4
+
+    - name: Get pnpm store directory
+      shell: bash
+      run: |
+        echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+    - name: Setup pnpm cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ env.STORE_PATH }}
+        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-pnpm-store-
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+
+    - name: Build macOS DMG
+      run: pnpm run make
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        APP_VERSION: 0.0.0-alpha.${{ github.run_number }}
+
+    - name: Upload macOS artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: electron-tray-demo-macos
+        path: out/make/electron-tray-demo-new.dmg
+        retention-days: 30
+
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download Windows artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: electron-tray-demo-windows
+        path: ./release-artifacts/windows/
+
+    - name: Download macOS artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: electron-tray-demo-macos
+        path: ./release-artifacts/macos/
+
+    - name: List artifacts
+      run: |
+        echo "=== Release artifacts ==="
+        ls -la ./release-artifacts/
+        echo "=== Windows artifacts ==="
+        ls -la ./release-artifacts/windows/
+        echo "=== macOS artifacts ==="
+        ls -la ./release-artifacts/macos/
+        echo "=== Finding exact filenames ==="
+        WIN_FILE=$(find ./release-artifacts/windows/ -name "*.exe" -type f | head -n 1)
+        MAC_FILE=$(find ./release-artifacts/macos/ -name "*.dmg" -type f | head -n 1)
+        echo "WIN_FILE=${WIN_FILE}" >> $GITHUB_ENV
+        echo "MAC_FILE=${MAC_FILE}" >> $GITHUB_ENV
+        echo "Windows file: ${WIN_FILE}"
+        echo "macOS file: ${MAC_FILE}"
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v0.0.0-alpha.${{ github.run_number }}
+        release_name: Dev Build ${{ github.run_number }}
+        body: |
+          🎯 **Electron Tray Demo**
+
+          A demonstration of Electron tray functionality with React and Material-UI.
+
+          **Features:**
+          - 🖱️ Add/remove system tray icons
+          - 🎨 Modern Material-UI interface
+          - 🌙 Dark/light theme support
+          - 📱 Cross-platform compatibility
+          - 🔧 Type-safe IPC communication
+
+          **Downloads:**
+          - Windows: See attached assets
+          - macOS: See attached assets
+
+          **Installation:**
+          - Download the appropriate file for your platform and run the installer.
+          - On macOS run `xattr -cr "/Applications/Electron Tray Demo.app"` to fix "This app is damaged and can't be opened. You should move it to the Bin." error.
+
+          **Usage:**
+          - Use the + and - buttons to add/remove tray icons
+          - Right-click tray icons to show the app or exit
+          - The app window shows the current number of tray icons
+        draft: false
+        prerelease: false
+
+    - name: Upload Windows Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ env.WIN_FILE }}
+        asset_name: Electron-Tray-Demo-${{ github.run_number }}-Setup.exe
+        asset_content_type: application/octet-stream
+
+    - name: Upload macOS Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ${{ env.MAC_FILE }}
+        asset_name: electron-tray-demo-${{ github.run_number }}-darwin-arm64.dmg
+        asset_content_type: application/octet-stream
